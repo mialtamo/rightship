@@ -1,65 +1,43 @@
 @page "/"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Microsoft.AspNetCore.Components.Forms
+@using RightShip.Web.Services
+@inject SettingsStore SettingsStore
 @inject HttpClient Api
-
 <PageTitle>RightShip | Blocklist Preview</PageTitle>
 <h1>Firewall IP Blocklist Manager</h1>
-<p class="muted">Upload an IP list and preview exactly how it fits into Azure IP Groups. Azure deployment is disabled in this first phase.</p>
+<p class="muted">Upload addresses and preview allocation using your <a href="/settings">IP Group naming settings</a>. Azure deployment is not enabled.</p>
 <section class="panel">
 <h2>Upload and validate</h2>
 <InputFile OnChange="LoadFile" accept=".txt,.csv" />
-<p class="muted">Plain text or comma-separated IP/CIDR entries, maximum 2 MB.</p>
-<textarea @bind="content" placeholder="Or paste IP addresses and CIDR ranges here" rows="8"></textarea>
-<button @onclick="Preview" disabled="@busy">@(busy ? "Evaluating..." : "Validate and preview")</button>
-@if (!string.IsNullOrWhiteSpace(error)) { <p class="error" role="alert">@error</p> }
+<p class="muted">Text or comma-separated IP/CIDR entries, maximum 2 MB.</p>
+<textarea @bind="content" placeholder="Or paste IP addresses here" rows="8"></textarea>
+<button @onclick="Preview" disabled="@busy">@(busy?"Evaluating...":"Validate and preview")</button>
+@if(error is not null){<p class="error" role="alert">@error</p>}
 </section>
-@if (result is not null)
-{
-<section class="panel">
-<h2>Validation summary</h2>
-<div class="metrics">
-<div><strong>@result.UploadedRows</strong><span>Rows parsed</span></div>
-<div><strong>@result.UniqueToAdd</strong><span>New entries</span></div>
-<div><strong>@result.Duplicates</strong><span>Duplicates</span></div>
-<div><strong>@result.InvalidRows</strong><span>Invalid</span></div>
-<div><strong>@result.NewGroups</strong><span>New groups</span></div>
-</div>
-<h3>IP Group allocation</h3>
-<table><thead><tr><th>Group</th><th>Action</th><th>Added</th><th>Final capacity</th></tr></thead><tbody>
-@foreach (var group in result.Changes) {
-<tr><td>@group.Name</td><td>@(group.Create ? "Create" : "Update")</td><td>@group.Added.Count</td><td>@group.FinalCount / 5,000</td></tr>
-}
+@if(result is not null){
+<section class="panel"><h2>Validation summary</h2>
+<div class="metrics"><div><strong>@result.UploadedRows</strong><span>Rows parsed</span></div><div><strong>@result.UniqueToAdd</strong><span>New entries</span></div><div><strong>@result.Duplicates</strong><span>Duplicates</span></div><div><strong>@result.InvalidRows</strong><span>Invalid</span></div><div><strong>@result.NewGroups</strong><span>New groups</span></div></div>
+<h3>IP Group allocation</h3><table><thead><tr><th>Group</th><th>Action</th><th>Added</th><th>Final entries</th></tr></thead><tbody>
+@foreach(var group in result.Changes){<tr><td>@group.Name</td><td>@(group.Create?"Create":"Update")</td><td>@group.Added.Count</td><td>@group.FinalCount / 5,000</td></tr>}
 </tbody></table>
-@if (result.Issues.Count > 0) {
-<h3>Invalid entries</h3>
-@foreach (var issue in result.Issues.Take(100)) { <p class="error">Line @issue.Line: @issue.Value (@issue.Reason)</p> }
-}
-</section>
-}
+@if(result.Issues.Count>0){<h3>Invalid entries</h3>@foreach(var issue in result.Issues.Take(100)){<p class="error">Line @issue.Line: @issue.Value (@issue.Reason)</p>}}
+</section>}
 @code {
-private string content = "";
-private string? error;
-private bool busy;
-private PreviewResult? result;
-private async Task LoadFile(InputFileChangeEventArgs e) {
-  try {
-    await using var stream = e.File.OpenReadStream(2_000_000);
-    using var reader = new StreamReader(stream);
-    content = await reader.ReadToEndAsync();
-    error = null; result = null;
-  } catch (Exception ex) { error = ex.Message; }
-}
-private async Task Preview() {
-  error = null; result = null; busy = true;
-  try {
-    var resp = await Api.PostAsJsonAsync("/api/blocklists/preview", new { Content = content, ExistingGroups = Array.Empty<object>(), GroupPrefix = "rightship-block-" });
-    if (!resp.IsSuccessStatusCode) { error = await resp.Content.ReadAsStringAsync(); return; }
-    result = await resp.Content.ReadFromJsonAsync<PreviewResult>(new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
-  } catch (Exception ex) { error = ex.Message; }
-  finally { busy = false; }
-}
-private sealed record Issue(int Line, string Value, string Reason);
-private sealed record Change(string Name, bool Create, int OriginalCount, List<string> Added, int FinalCount);
-private sealed record PreviewResult(int UploadedRows, int InvalidRows, int Duplicates, int AlreadyManaged, int UniqueToAdd, List<Issue> Issues, List<Change> Changes, int NewGroups, int UpdatedGroups);
+ string content="";string? error;bool busy;PreviewResult? result;
+ protected override async Task OnInitializedAsync(){_ = await SettingsStore.LoadAsync();}
+ async Task LoadFile(InputFileChangeEventArgs e){try{await using var s=e.File.OpenReadStream(2_000_000);using var reader=new StreamReader(s);content=await reader.ReadToEndAsync();error=null;result=null;}catch(Exception ex){error=ex.Message;}}
+ async Task Preview(){
+  error=null;result=null;busy=true;
+  try{
+   var settings=await SettingsStore.LoadAsync();
+   if(string.IsNullOrWhiteSpace(settings.IpGroupPrefix)||settings.StartingNumber<0||settings.Capacity is <1 or >5000){error="Fix your naming and capacity settings first.";return;}
+   var response=await Api.PostAsJsonAsync("/api/blocklists/preview",new {Content=content,ExistingGroups=Array.Empty<object>(),GroupPrefix=settings.IpGroupPrefix,StartingNumber=settings.StartingNumber,Capacity=settings.Capacity});
+   if(!response.IsSuccessStatusCode){error=await response.Content.ReadAsStringAsync();return;}
+   result=await response.Content.ReadFromJsonAsync<PreviewResult>(new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+  }catch(Exception ex){error=ex.Message;}finally{busy=false;}
+ }
+ record Issue(int Line,string Value,string Reason);
+ record Change(string Name,bool Create,int OriginalCount,List<string> Added,int FinalCount);
+ record PreviewResult(int UploadedRows,int InvalidRows,int Duplicates,int AlreadyManaged,int UniqueToAdd,List<Issue> Issues,List<Change> Changes,int NewGroups,int UpdatedGroups);
 }
