@@ -1,0 +1,38 @@
+@page "/settings"
+@using RightShip.Web.Services
+@inject SettingsStore Store
+<PageTitle>RightShip | Settings</PageTitle>
+<h1>Settings</h1>
+<p class="muted">Configure Azure resource targets and group naming. During Phase 1 settings are saved only in this browser, not shared or verified with Azure. Azure writes are disabled.</p>
+<section class="panel">
+<h2>Azure targets</h2>
+<div class="settings-grid">
+<label>Cloud<select @bind="settings.Cloud"><option value="AzureCloud">Azure Commercial</option><option value="AzureUSGovernment">Azure Government</option></select></label>
+<label>Subscription ID<input @bind="settings.SubscriptionId" placeholder="Subscription GUID" /></label>
+<label>IP Group resource group<input @bind="settings.IpGroupResourceGroup" placeholder="rg-ipgroups" /></label>
+<label>IP Group region<input @bind="settings.IpGroupRegion" placeholder="westus2" /></label>
+<label>Firewall Policy resource ID<input @bind="settings.FirewallPolicyResourceId" placeholder="/subscriptions/.../firewallPolicies/..." /></label>
+<label>Rule Collection Group<input @bind="settings.RuleCollectionGroup" /></label>
+<label>Deny Rule Collection<input @bind="settings.RuleCollection" /></label>
+<label>Deny Network Rule<input @bind="settings.DenyRule" /></label>
+</div>
+<h2>IP Group allocation</h2>
+<div class="settings-grid">
+<label>IP Group naming prefix<input @bind="settings.IpGroupPrefix" maxlength="60" /></label>
+<label>Starting sequence number<input type="number" min="0" max="999999" @bind="settings.StartingNumber" /></label>
+<label>Maximum entries per group<input type="number" min="1" max="5000" @bind="settings.Capacity" /></label>
+<label>Deployment approval<select @bind="settings.RequireApproval"><option value="true">Require administrator approval</option><option value="false">Optional approval (preview only)</option></select></label>
+</div>
+<p class="muted">Example generated names: <strong>@(settings.IpGroupPrefix + settings.StartingNumber)</strong>, <strong>@(settings.IpGroupPrefix + (settings.StartingNumber+1))</strong>, <strong>@(settings.IpGroupPrefix + (settings.StartingNumber+2))</strong>. Existing names will be skipped.</p>
+<button @onclick="Save">Save preview settings</button>
+@if(message is not null){<p role="status">@message</p>}
+</section>
+@code {
+ PlannerSettings settings=new();
+ string? message;
+ protected override async Task OnInitializedAsync()=>settings=await Store.LoadAsync();
+ async Task Save() {
+  if(string.IsNullOrWhiteSpace(settings.IpGroupPrefix)||settings.StartingNumber<0||settings.StartingNumber>999999||settings.Capacity is <1 or >5000) {message="Invalid group name, sequence or capacity.";return;}
+  await Store.SaveAsync(settings);message="Settings saved in this browser.";
+ }
+}
