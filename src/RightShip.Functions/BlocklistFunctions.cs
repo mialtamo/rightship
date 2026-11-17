@@ -13,7 +13,7 @@ public sealed class BlocklistFunctions(EntraValidator auth)
  }
  [Function("Preview")]
  public async Task<HttpResponseData> Preview([HttpTrigger(AuthorizationLevel.Anonymous,"post",Route="blocklists/preview")]HttpRequestData req){
-  if(!await auth.HasRoleAsync(req,"RightShip.Operator","RightShip.Administrator"))return await Failure(req,HttpStatusCode.Forbidden,"Operator or Administrator Entra role required");
+  if(!auth.AllowLocalPreview && !await auth.HasRoleAsync(req,"RightShip.Operator","RightShip.Administrator"))return await Failure(req,HttpStatusCode.Forbidden,"Operator or Administrator Entra role required");
   try{
    var payload=await JsonSerializer.DeserializeAsync<PreviewRequest>(req.Body,new JsonSerializerOptions{PropertyNameCaseInsensitive=true});
    if(payload?.Content is null||payload.Content.Length>2_000_000)return await Failure(req,HttpStatusCode.BadRequest,"Missing or oversized content (2 MB max)");

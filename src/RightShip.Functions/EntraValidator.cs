@@ -8,26 +8,31 @@ namespace RightShip.Functions;
 
 public sealed class EntraValidator
 {
-    private readonly ConfigurationManager<OpenIdConnectConfiguration> _metadata;
-    private readonly string _tenant;
-    private readonly string _audience;
-    private readonly string _loginHost;
+    private readonly ConfigurationManager<OpenIdConnectConfiguration>? _metadata;
+    private readonly string? _audience;
 
     public EntraValidator()
     {
-        _tenant = Environment.GetEnvironmentVariable("ENTRA_TENANT_ID") ?? throw new InvalidOperationException("ENTRA_TENANT_ID missing");
-        _audience = Environment.GetEnvironmentVariable("ENTRA_API_AUDIENCE") ?? throw new InvalidOperationException("ENTRA_API_AUDIENCE missing");
-        _loginHost = Environment.GetEnvironmentVariable("ENTRA_LOGIN_HOST") ?? "login.microsoftonline.com";
-        if (_loginHost is not ("login.microsoftonline.com" or "login.microsoftonline.us")) throw new InvalidOperationException("Unsupported login host");
-        var authority = $"https://{_loginHost}/{_tenant}/v2.0";
+        var tenant = Environment.GetEnvironmentVariable("ENTRA_TENANT_ID");
+        _audience = Environment.GetEnvironmentVariable("ENTRA_API_AUDIENCE");
+        var loginHost = Environment.GetEnvironmentVariable("ENTRA_LOGIN_HOST") ?? "login.microsoftonline.com";
+        if (loginHost is not ("login.microsoftonline.com" or "login.microsoftonline.us"))
+            throw new InvalidOperationException("Unsupported Entra login host");
+        if (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(_audience)) return;
+        var authority = $"https://{loginHost}/{tenant}/v2.0";
         _metadata = new ConfigurationManager<OpenIdConnectConfiguration>(
             authority + "/.well-known/openid-configuration",
             new OpenIdConnectConfigurationRetriever(),
             new HttpDocumentRetriever { RequireHttps = true });
     }
 
+    public bool AllowLocalPreview =>
+        string.Equals(Environment.GetEnvironmentVariable("AZURE_FUNCTIONS_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(Environment.GetEnvironmentVariable("RIGHTSHIP_ALLOW_LOCAL_PREVIEW"), "true", StringComparison.OrdinalIgnoreCase);
+
     public async Task<bool> HasRoleAsync(HttpRequestData request, params string[] roles)
     {
+        if (_metadata is null || string.IsNullOrWhiteSpace(_audience)) return false;
         if (!request.Headers.TryGetValues("Authorization", out var headers)) return false;
         var header = headers.FirstOrDefault();
         if (header is null || !header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return false;
